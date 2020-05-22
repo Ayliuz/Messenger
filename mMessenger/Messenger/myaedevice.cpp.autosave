@@ -1,0 +1,46 @@
+#include "myaedevice.h"
+
+AudioEncryptDevice::AudioEncryptDevice(QHostAddress &in_userAdress, quint16 in_userPort, QByteArray &in_userPublicKey, QByteArray &in_ourPrivateKey, QRSAEncryption &in_encrypt, QObject *parent) : QObject(parent)
+{
+    userAdress = in_userAdress;
+    userPort = in_userPort;
+    userPubKey = in_userPublicKey;
+    ourPrivKey = in_ourPrivateKey;
+    encrypt = in_encrypt;
+
+    audioSok = new QUdpSocket(this);
+    audioAdress = QHostAddress::LocalHost;
+    audioPort = 1234;
+    audioOutput = new QAudioOutput(audioFormat, this);
+
+    connect(device, SIGNAL(readyRead()), this, SLOT(slotSendEncrypt()));
+}
+
+//начало передачи аудио на определённый порт
+void AudioEncryptDevice::startStream(){
+
+    audioSok->bind(audioAdress, audioPort);
+    audioFormat.setSampleRate(128000);
+    audioFormat.setChannelCount(1);
+    audioFormat.setSampleSize(16);
+    audioFormat.setCodec("audio/pcm");
+    audioFormat.setByteOrder(QAudioFormat::LittleEndian);
+    audioFormat.setSampleType(QAudioFormat::UnSignedInt);
+
+    //если формат не поддерживается, задаём ближайший поддерживающийся
+    QAudioDeviceInfo info(QAudioDeviceInfo::defaultInputDevice());
+    if (!info.isFormatSupported(audioFormat))
+        audioFormat = info.nearestFormat(audioFormat);
+
+    audioInput = new QAudioInput(audioFormat, this);
+    audioSok->connectToHost(userAdress, userPort);
+    device = audioInput->start();
+}
+
+void AudioEncryptDevice::slotSendEncrypt(){
+    while(device->bytesAvailable() > 128){
+        QByteArray outputBuffer = device->readAll();
+        QByteArray encodeBuffer = encrypt.encode(outputBuffer, userPubKey, encrypt.getRsa());
+        audioSok->write(encodeBuffer, encodeBuffer.size());
+    }
+}
